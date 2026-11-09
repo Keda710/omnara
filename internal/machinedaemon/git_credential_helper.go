@@ -7,14 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
-	"github.com/omnara-ai/omnara/internal/machinedaemon/localipc"
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
@@ -70,28 +68,9 @@ func RunGitCredentialHelper(
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			connectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			defer cancel()
-			for {
-				conn, err := localipc.Dial(connectCtx, endpoint)
-				if err == nil {
-					return conn, nil
-				}
-				if err := sleepContext(connectCtx, 250*time.Millisecond); err != nil {
-					return nil, errors.New("daemon is unavailable for Git credentials")
-				}
-			}
-		},
-	}
+	transport := dialProcessService(endpoint, "daemon is unavailable for Git credentials")
 	defer transport.CloseIdleConnections()
-	client := http.Client{
-		Transport: transport,
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := http.Client{Transport: transport, CheckRedirect: noRedirects}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://daemon/git-credentials/"+processID, nil)
 	if err != nil {
 		return errors.New("cannot prepare Git credential request")
